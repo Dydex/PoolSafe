@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Build
+dist/
+.next/
+out/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Debug
+npm-debug.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Rust / Soroban
+contracts/target/
+*.wasm
+
+# Test
+coverage/
