@@ -50,7 +50,7 @@ export default function NewClaim() {
                 <FieldLabel>Claim Amount</FieldLabel>
                 <div className="relative">
                   <input className="w-full rounded-lg border-outline-variant bg-white px-4 py-3 pr-14 focus:border-secondary focus:ring-secondary/20" placeholder="0.00" />
-                  <span className="absolute right-4 top-1/2 -translate-y-1/2 font-mono text-on-surface-variant">ETH</span>
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 font-mono text-on-surface-variant">USDC</span>
                 </div>
               </div>
             </div>
@@ -82,11 +82,11 @@ export default function NewClaim() {
             <div className="border-t border-outline-variant pt-stack-lg">
               <div className="mb-stack-sm flex justify-between text-body-sm">
                 <span className="text-on-surface-variant">Submission Protocol Fee</span>
-                <span className="font-mono font-semibold">0.05 ETH</span>
+                <span className="font-mono font-semibold">0.05 USDC</span>
               </div>
               <div className="mb-stack-lg flex justify-between text-body-sm">
                 <span className="text-on-surface-variant">Estimated Network Fee</span>
-                <span className="font-mono text-on-surface-variant">~ 0.002 ETH</span>
+                <span className="font-mono text-on-surface-variant">~ 0.002 USDC</span>
               </div>
               <button className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-4 font-semibold text-on-primary transition hover:opacity-90">
                 Submit Claim <ArrowRight size={20} />
