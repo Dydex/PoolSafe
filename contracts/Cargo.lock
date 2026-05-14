@@ -820,14 +820,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 
 [[package]]
-name = "nexusguard-payout"
+name = "nexusguard-factory"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
 ]
 
 [[package]]
-name = "nexusguard-token"
+name = "nexusguard-pool"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
@@ -919,35 +919,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "poolsafe-claims"
-version = "0.1.0"
-dependencies = [
- "soroban-sdk",
-]
-
-[[package]]
-name = "poolsafe-governance"
-version = "0.1.0"
-dependencies = [
- "soroban-sdk",
-]
-
-[[package]]
-name = "poolsafe-pool"
-version = "0.1.0"
-dependencies = [
- "soroban-sdk",
-]
-
-[[package]]
 name = "poolsafe-smart-account"
-version = "0.1.0"
-dependencies = [
- "soroban-sdk",
-]
-
-[[package]]
-name = "poolsafe-voting"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
