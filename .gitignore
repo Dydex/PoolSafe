@@ -30,3 +30,7 @@ contracts/target/
 
 # Test
 coverage/
+
+.agents
+.codex
+.vscode

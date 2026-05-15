@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { sorobanService } from "../services/soroban.service";
 import { keeperService } from "../services/keeper.service";
-import { ApiResponse, OnChainPoolInfo } from "../types";
+import { ApiResponse } from "../types";
 
 const router = Router();
 
@@ -13,19 +13,29 @@ router.get(
   "/stats",
   async (_req: Request, res: Response, next: NextFunction) => {
     try {
-      const [totalDeposits, memberCount] = await Promise.all([
-        sorobanService.getPoolTotalDeposits(),
+      const [totals, memberCount] = await Promise.all([
+        sorobanService.getProtocolPoolTotals(),
         sorobanService.getPoolMemberCount(),
       ]);
 
       const response: ApiResponse<{
         totalDeposits: string;
         memberCount: number;
+        totalPaidClaimAmount: string;
+        totalBalanceAllPools: string;
+        totalApprovedClaimAmount: string;
+        activePoolCount: number;
+        totalClaimsSubmitted: number;
       }> = {
         success: true,
         data: {
-          totalDeposits: totalDeposits.toString(),
+          totalDeposits: totals.totalBalanceAllPools.toString(),
           memberCount,
+          totalPaidClaimAmount: totals.totalPaidClaimAmount.toString(),
+          totalBalanceAllPools: totals.totalBalanceAllPools.toString(),
+          totalApprovedClaimAmount: totals.totalApprovedClaimAmount.toString(),
+          activePoolCount: totals.activePoolCount,
+          totalClaimsSubmitted: totals.totalClaimsSubmitted,
         },
         timestamp: new Date().toISOString(),
       };

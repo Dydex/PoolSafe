@@ -102,11 +102,22 @@ export interface OnChainClaim {
 }
 
 export type ClaimStatus =
+  | 'PendingReview'
+  | 'Approved'
   | 'Submitted'
   | 'UnderReview'
   | 'ApprovedByGovernance'
   | 'Rejected'
+  | 'Resolved'
   | 'PaidOut';
+
+export interface ProtocolPoolTotals {
+  totalPaidClaimAmount: bigint;
+  totalBalanceAllPools: bigint;
+  totalApprovedClaimAmount: bigint;
+  activePoolCount: number;
+  totalClaimsSubmitted: number;
+}
 
 /**
  * On-chain pool info.

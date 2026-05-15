@@ -9,6 +9,7 @@ import {
 import {
   OnChainClaim,
   OnChainPoolInfo,
+  ProtocolPoolTotals,
   OnChainRecurringPayment,
   OnChainScheduledTransfer,
 } from "../types";
@@ -161,6 +162,39 @@ export class SorobanService {
     );
     if (!result) return 0;
     return Number(StellarSdk.scValToBigInt(result));
+  }
+
+  async getProtocolPoolTotals(): Promise<ProtocolPoolTotals> {
+    const result = await this.simulateContractCall(
+      config.contracts.pool,
+      "protocol_totals",
+    );
+
+    if (!result) {
+      return {
+        totalPaidClaimAmount: BigInt(0),
+        totalBalanceAllPools: BigInt(0),
+        totalApprovedClaimAmount: BigInt(0),
+        activePoolCount: 0,
+        totalClaimsSubmitted: 0,
+      };
+    }
+
+    const native = StellarSdk.scValToNative(result) as Record<string, unknown>;
+
+    return {
+      totalPaidClaimAmount: BigInt(
+        native.total_paid_claim_amount as string | number,
+      ),
+      totalBalanceAllPools: BigInt(
+        native.total_balance_all_pools as string | number,
+      ),
+      totalApprovedClaimAmount: BigInt(
+        native.total_approved_claim_amount as string | number,
+      ),
+      activePoolCount: Number(native.active_pool_count),
+      totalClaimsSubmitted: Number(native.total_claims_submitted),
+    };
   }
 
   async isPoolMember(address: string): Promise<boolean> {
@@ -348,6 +382,9 @@ export class SorobanService {
       ApprovedByGovernance: "ApprovedByGovernance",
       Rejected: "Rejected",
       PaidOut: "PaidOut",
+      PendingReview: "PendingReview",
+      Approved: "Approved",
+      Resolved: "Resolved",
     };
     return statusMap[String(status)] || "Submitted";
   }

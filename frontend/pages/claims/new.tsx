@@ -1,122 +1,259 @@
-import { ArrowRight, FileUp, Info, Sparkles } from "lucide-react";
-import { AppShell } from "@/components/Layout";
-import { Card, FieldLabel, IconBadge } from "@/components/ui";
+import { useRouter } from "next/router";
+import { useRef, useState, type FormEvent } from "react";
 
-const steps = ["Details", "Evidence", "Review"];
+import { FigmaPage } from "../../components/FigmaPage";
+import { Header } from "../../components/header";
+import { Footer } from "../../components/footer";
+import { useWallet } from "../../context/WalletContext";
+import { pool } from "../../lib/contracts";
+import { toStroops, fromStroops } from "../../lib/contracts/config";
+import { uploadFile } from "../../lib/contracts/pinata";
 
-export default function NewClaim() {
+export default function SubmitClaimPage() {
+  const router = useRouter();
+  const poolAddress = (router.query.pool as string) ?? "";
+  const { address, isConnected, connect } = useWallet();
+
+  const [amount, setAmount] = useState("");
+  const [description, setDescription] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
+  const [certified, setCertified] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [status, setStatus] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    if (e.target.files) {
+      setFiles((prev) => [...prev, ...Array.from(e.target.files!)]);
+    }
+  }
+
+  function removeFile(index: number) {
+    setFiles((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!certified) {
+      setStatus("Please certify the information is accurate.");
+      return;
+    }
+
+    const connectedAddress = address || (await connect());
+    if (!connectedAddress) {
+      setStatus("Connect your wallet before submitting a claim.");
+      return;
+    }
+
+    if (!poolAddress) {
+      setStatus("No pool address specified. Navigate from a pool details page.");
+      return;
+    }
+
+    setSubmitting(true);
+    setStatus("Uploading evidence to IPFS...");
+
+    try {
+      // Upload files to IPFS
+      let evidenceCid = "";
+      if (files.length > 0) {
+        try {
+          const uploadResult = await uploadFile(files[0]);
+          evidenceCid = uploadResult.cid;
+        } catch {
+          evidenceCid = "";
+        }
+      }
+
+      setStatus("Submitting claim to Stellar Testnet...");
+
+      const reviewPeriod = 7 * 24 * 60 * 60; // 7 days
+      const txHash = await pool.submitClaim(poolAddress, connectedAddress, {
+        amount: toStroops(Number(amount)),
+        description,
+        evidenceCid,
+        reviewPeriodSeconds: reviewPeriod,
+      });
+
+      setStatus(`Claim submitted! TX: ${txHash}`);
+      setTimeout(() => router.push(`/pool-details?address=${poolAddress}`), 3000);
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : "Failed to submit claim.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
-    <AppShell>
-      <div className="mx-auto max-w-[800px]">
-        <header className="mb-stack-lg flex items-center justify-between gap-stack-md">
-          <div>
-            <p className="mb-1 text-label-caps uppercase tracking-wider text-secondary">Claims Protocol</p>
-            <h1 className="font-heading text-headline-lg">New Claim Submission</h1>
-          </div>
-          <span className="rounded-full border border-outline-variant bg-surface-container-highest px-3 py-1 font-mono text-mono-data text-on-surface-variant">
-            0x402...E51A
-          </span>
-        </header>
-
-        <div className="mb-stack-lg flex items-center justify-between px-2">
-          {steps.map((step, index) => (
-            <div key={step} className="flex min-w-0 flex-1 items-center">
-              <div className="flex flex-col items-center gap-2">
-                <div className={index === 0 ? "flex h-8 w-8 items-center justify-center rounded-full bg-primary text-sm font-bold text-on-primary" : "flex h-8 w-8 items-center justify-center rounded-full bg-surface-container-highest text-sm font-bold text-on-surface-variant"}>
-                  {index + 1}
+    <FigmaPage title="Submit Claim">
+      <>
+        <Header />
+        <main className="flex-grow pt-24 pb-xl px-container-padding max-w-[1280px] mx-auto w-full grid grid-cols-12 gap-xl">
+          {/* Left Sidebar */}
+          <div className="col-span-12 lg:col-span-4 flex flex-col gap-lg">
+            <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl p-lg shadow-sm">
+              <div className="flex items-center gap-sm mb-lg">
+                <div className="w-10 h-10 rounded-full bg-secondary-container flex items-center justify-center text-on-secondary-container">
+                  <span className="material-symbols-outlined">gavel</span>
                 </div>
-                <span className={index === 0 ? "text-label-caps text-primary" : "text-label-caps text-on-surface-variant"}>
-                  {step}
-                </span>
-              </div>
-              {index < steps.length - 1 && <div className="mx-4 -mt-6 h-px flex-1 bg-outline-variant" />}
-            </div>
-          ))}
-        </div>
-
-        <Card className="p-stack-lg">
-          <form className="flex flex-col gap-stack-lg">
-            <div className="grid grid-cols-1 gap-stack-md md:grid-cols-2">
-              <div className="flex flex-col gap-stack-sm">
-                <FieldLabel>Claim Category</FieldLabel>
-                <select className="rounded-lg border-outline-variant bg-white px-4 py-3 text-on-surface focus:border-secondary focus:ring-secondary/20">
-                  <option>Cyber Security Breach</option>
-                  <option>Smart Contract Exploit</option>
-                  <option>Protocol Travel Delay</option>
-                  <option>Institutional Health</option>
-                </select>
-              </div>
-              <div className="flex flex-col gap-stack-sm">
-                <FieldLabel>Claim Amount</FieldLabel>
-                <div className="relative">
-                  <input className="w-full rounded-lg border-outline-variant bg-white px-4 py-3 pr-14 focus:border-secondary focus:ring-secondary/20" placeholder="0.00" />
-                  <span className="absolute right-4 top-1/2 -translate-y-1/2 font-mono text-on-surface-variant">USDC</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between gap-4 rounded-lg border border-secondary-container bg-secondary-container/30 p-4">
-              <div className="flex items-center gap-3">
-                <Sparkles className="text-secondary" size={22} />
                 <div>
-                  <p className="text-body-sm font-semibold text-on-secondary-container">AI Risk Analysis: Low Risk</p>
-                  <p className="text-xs text-on-surface-variant">Eligible for institutional fast-track settlement.</p>
+                  <h2 className="font-headline-sm text-headline-sm text-primary">Submit Claim</h2>
+                  <p className="font-body-sm text-body-sm text-on-surface-variant">
+                    Pool: {poolAddress ? `${poolAddress.slice(0, 8)}...` : "Not selected"}
+                  </p>
                 </div>
               </div>
-              <span className="rounded-full bg-secondary px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-on-secondary">
-                Verified
-              </span>
-            </div>
-
-            <div className="flex flex-col gap-stack-sm">
-              <FieldLabel>Evidence Documentation</FieldLabel>
-              <div className="flex cursor-pointer flex-col items-center justify-center gap-stack-sm rounded-xl border-2 border-dashed border-outline-variant p-stack-lg text-center transition hover:bg-surface-container-low">
-                <IconBadge icon={FileUp} tone="neutral" />
-                <div>
-                  <p className="text-body-sm font-medium">Drop files here or click to upload</p>
-                  <p className="text-xs text-on-surface-variant">PDF, JPG, or PNG (Max 10MB per file)</p>
-                </div>
+              <div className="mt-xl pt-lg border-t border-outline-variant/20">
+                <h3 className="font-label-caps text-label-caps text-outline uppercase mb-md">Submission Tips</h3>
+                <ul className="space-y-sm text-body-sm text-on-surface-variant">
+                  <li className="flex gap-xs">
+                    <span className="material-symbols-outlined text-secondary scale-75">check_circle</span>
+                    Provide evidence files or transaction hashes.
+                  </li>
+                  <li className="flex gap-xs">
+                    <span className="material-symbols-outlined text-secondary scale-75">check_circle</span>
+                    Describe the loss event clearly with dates.
+                  </li>
+                  <li className="flex gap-xs">
+                    <span className="material-symbols-outlined text-secondary scale-75">check_circle</span>
+                    Claims have a 24h cooldown between submissions.
+                  </li>
+                </ul>
               </div>
             </div>
-
-            <div className="border-t border-outline-variant pt-stack-lg">
-              <div className="mb-stack-sm flex justify-between text-body-sm">
-                <span className="text-on-surface-variant">Submission Protocol Fee</span>
-                <span className="font-mono font-semibold">0.05 USDC</span>
-              </div>
-              <div className="mb-stack-lg flex justify-between text-body-sm">
-                <span className="text-on-surface-variant">Estimated Network Fee</span>
-                <span className="font-mono text-on-surface-variant">~ 0.002 USDC</span>
-              </div>
-              <button className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-4 font-semibold text-on-primary transition hover:opacity-90">
-                Submit Claim <ArrowRight size={20} />
-              </button>
-              <p className="mt-4 text-center text-[11px] leading-relaxed text-on-surface-variant">
-                By clicking submit, you authorize Nexus Guard to evaluate this claim using decentralized oracle networks
-                and AI validation layers. Fees are non-refundable.
-              </p>
-            </div>
-          </form>
-        </Card>
-
-        <div className="mt-stack-lg grid grid-cols-1 gap-stack-md md:grid-cols-3">
-          <div className="rounded-xl border border-outline-variant bg-surface-container-high p-6 md:col-span-2">
-            <div className="flex gap-4">
-              <Info className="text-primary" />
+            <div className="bg-primary-container text-on-primary-container rounded-xl p-lg flex items-center gap-md">
+              <span className="material-symbols-outlined text-[32px]">verified_user</span>
               <div>
-                <h2 className="text-body-sm font-bold">Claims Protocol v4.2</h2>
-                <p className="mt-1 text-xs text-on-surface-variant">
-                  Low-risk claims usually resolve in 24-48 hours after oracle validation.
+                <p className="font-headline-sm text-headline-sm leading-tight">Quorum Voting</p>
+                <p className="font-body-sm text-body-sm opacity-80">
+                  Your claim will be reviewed by pool members with 60% quorum threshold.
                 </p>
               </div>
             </div>
           </div>
-          <Card className="flex flex-col items-center justify-center text-center">
-            <span className="text-headline-md font-bold text-secondary">98%</span>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-on-surface-variant">Trust Score</span>
-          </Card>
-        </div>
-      </div>
-    </AppShell>
+
+          {/* Form */}
+          <div className="col-span-12 lg:col-span-8">
+            <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl shadow-sm overflow-hidden">
+              <div className="p-xl border-b border-outline-variant/20">
+                <h1 className="font-headline-md text-headline-md text-on-surface">Claim Details</h1>
+                <p className="font-body-sm text-body-sm text-on-surface-variant mt-xs">
+                  Provide accurate information to expedite the review process.
+                </p>
+              </div>
+              <form className="p-xl space-y-xl" onSubmit={handleSubmit}>
+                <div className="space-y-xs">
+                  <label className="font-label-caps text-label-caps text-on-surface-variant uppercase">
+                    Claim Amount (USDC)
+                  </label>
+                  <div className="relative">
+                    <input
+                      className="w-full bg-surface-container-low border border-outline-variant/50 rounded-lg px-md py-lg font-mono-data text-headline-sm focus:border-secondary focus:ring-1 focus:ring-secondary outline-none transition-all"
+                      placeholder="0.00"
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      required
+                      value={amount}
+                      onChange={(e) => setAmount(e.target.value)}
+                    />
+                    <div className="absolute right-md top-1/2 -translate-y-1/2 flex items-center gap-xs text-outline">
+                      <span className="font-bold">USDC</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-xs">
+                  <label className="font-label-caps text-label-caps text-on-surface-variant uppercase">
+                    Incident Description
+                  </label>
+                  <textarea
+                    className="w-full bg-surface-container-low border border-outline-variant/50 rounded-lg px-md py-md font-body-sm focus:border-secondary focus:ring-1 focus:ring-secondary outline-none transition-all"
+                    placeholder="Describe the loss event, include dates and circumstances..."
+                    rows={5}
+                    required
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-xs">
+                  <label className="font-label-caps text-label-caps text-on-surface-variant uppercase">
+                    Evidence &amp; Documentation
+                  </label>
+                  <div className="border-2 border-dashed border-outline-variant/50 rounded-xl p-md flex flex-col gap-sm bg-surface-container-low/50">
+                    {files.map((f, i) => (
+                      <div key={i} className="flex items-center justify-between p-sm bg-surface-container-lowest border border-outline-variant/30 rounded-lg">
+                        <div className="flex items-center gap-sm">
+                          <span className="material-symbols-outlined text-secondary">image</span>
+                          <span className="font-body-sm text-on-surface">{f.name}</span>
+                          <span className="font-label-caps text-outline">{(f.size / 1024).toFixed(0)} KB</span>
+                        </div>
+                        <button type="button" onClick={() => removeFile(i)}>
+                          <span className="material-symbols-outlined text-outline hover:text-error cursor-pointer text-sm">close</span>
+                        </button>
+                      </div>
+                    ))}
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      className="hidden"
+                      multiple
+                      onChange={handleFileChange}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="text-secondary font-label-caps text-label-caps flex items-center gap-xs hover:underline uppercase cursor-pointer justify-center mt-sm"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">add</span> Add Files
+                    </button>
+                  </div>
+                </div>
+
+                <div className="bg-surface-container-low/50 rounded-lg p-md space-y-sm">
+                  <label className="flex items-start gap-md cursor-pointer">
+                    <input
+                      className="mt-1 rounded text-secondary focus:ring-secondary border-outline-variant/50"
+                      type="checkbox"
+                      checked={certified}
+                      onChange={(e) => setCertified(e.target.checked)}
+                    />
+                    <span className="text-body-sm text-on-surface-variant italic">
+                      I certify that the information provided is accurate and represents a genuine loss within the scope of my coverage policy.
+                    </span>
+                  </label>
+                </div>
+
+                {status && (
+                  <p className={`text-body-sm ${status.includes("!") ? "text-secondary" : "text-error"}`}>
+                    {status}
+                  </p>
+                )}
+
+                <div className="flex flex-col md:flex-row gap-md pt-lg">
+                  <button
+                    className="flex-1 bg-secondary text-on-secondary px-xl py-lg rounded-lg font-headline-sm hover:opacity-90 active:scale-[0.98] transition-all flex items-center justify-center gap-sm disabled:opacity-50"
+                    type="submit"
+                    disabled={submitting}
+                  >
+                    {submitting ? "Submitting..." : "Submit Claim Proposal"}
+                    <span className="material-symbols-outlined">send</span>
+                  </button>
+                  <button
+                    className="px-xl py-lg border border-outline-variant text-on-surface-variant rounded-lg font-headline-sm hover:bg-surface-container-high transition-all"
+                    type="button"
+                    onClick={() => router.back()}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </main>
+        <Footer />
+      </>
+    </FigmaPage>
   );
 }
