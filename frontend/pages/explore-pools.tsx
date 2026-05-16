@@ -153,8 +153,25 @@ export default function ExplorePoolsPage() {
                           />
                         </div>
                       </div>
+                      {s?.phase === "Formation" && (
+                        <div className="mt-md">
+                          <div className="flex justify-between items-center mb-xs">
+                            <span className="font-label-caps text-label-caps text-on-surface-variant">FORMATION PROGRESS</span>
+                            <span className="font-label-caps text-label-caps text-secondary">{s.memberCount}/{s.minMembers} min</span>
+                          </div>
+                          <div className="w-full bg-surface-variant h-1 rounded-full overflow-hidden">
+                            <div
+                              className="bg-tertiary h-full rounded-full transition-all"
+                              style={{ width: `${Math.min(100, Math.round((s.memberCount / s.minMembers) * 100))}%` }}
+                            />
+                          </div>
+                          <p className="text-[11px] text-on-surface-variant mt-xs">
+                            {s.minMembers - s.memberCount} more member{s.minMembers - s.memberCount !== 1 ? "s" : ""} needed to activate
+                          </p>
+                        </div>
+                      )}
                       <div className="mt-md font-body-sm text-on-surface-variant">
-                        Contribution: {s ? `${fromStroops(s.contributionAmount).toFixed(2)} USDC` : "—"}
+                        Contribution: {s ? `${fromStroops(s.contributionAmount).toFixed(2)} USDC/mo` : "—"}
                       </div>
                       <div className="text-body-sm text-outline">
                         Creator: {shortenAddress(p.creator)}

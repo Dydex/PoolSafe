@@ -11,12 +11,12 @@ import { ApiResponse, VerificationReport, FraudReport } from "../types";
 const router = Router();
 
 /**
- * POST /api/claims/submit
- * Submit a new claim — x402 payment gated (anti-spam).
- * Body: { claimantAddress, amount, descriptionHash, evidenceCid }
+ * POST /api/claims/precheck
+ * Pre-submission validation — checks membership, active status, evidence CID.
+ * Body: { poolAddress, amount, evidenceCid }
  */
 router.post(
-  "/submit",
+  "/precheck",
   authMiddleware,
   x402PaymentGate({
     amount: "0.01",
@@ -25,18 +25,15 @@ router.post(
   }),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { amount, descriptionHash, evidenceCid } = req.body;
+      const { poolAddress, amount, evidenceCid } = req.body;
       const claimantAddress = req.stellarAddress!;
 
-      if (!amount || !descriptionHash || !evidenceCid) {
-        throw createHttpError(
-          400,
-          "Missing required fields: amount, descriptionHash, evidenceCid",
-        );
+      if (!poolAddress || !amount || !evidenceCid) {
+        throw createHttpError(400, "Missing required fields: poolAddress, amount, evidenceCid");
       }
 
-      // Pre-submission validation
       const preCheck = await claimVerificationService.preSubmissionCheck(
+        poolAddress,
         claimantAddress,
         BigInt(amount),
         evidenceCid,
@@ -51,26 +48,21 @@ router.post(
         return;
       }
 
-      // Run fraud detection
       const fraudReport = await fraudDetectionService.analyzeClaim(
-        -1, // Pre-submission, no claim ID yet
+        poolAddress,
+        -1,
         claimantAddress,
         BigInt(amount),
       );
 
-      // Notify the user
       notificationService.notifyClaimSubmitted(claimantAddress, -1);
 
-      const response: ApiResponse<{
-        preCheck: typeof preCheck;
-        fraudReport: FraudReport;
-      }> = {
+      const response: ApiResponse<{ preCheck: typeof preCheck; fraudReport: FraudReport }> = {
         success: true,
         data: { preCheck, fraudReport },
         timestamp: new Date().toISOString(),
       };
-
-      res.status(200).json(response);
+      res.json(response);
     } catch (error) {
       next(error);
     }
@@ -78,71 +70,48 @@ router.post(
 );
 
 /**
- * GET /api/claims/:id
- * Get claim details from on-chain.
+ * GET /api/claims/:poolAddress/:id
+ * Get a single claim from a specific pool.
  */
-router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
+router.get("/:poolAddress/:id", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const idParam = Array.isArray(req.params.id)
-      ? req.params.id[0]
-      : req.params.id;
-    const claimId = parseInt(idParam, 10);
-    if (isNaN(claimId)) {
-      throw createHttpError(400, "Invalid claim ID");
-    }
+    const poolAddress = Array.isArray(req.params.poolAddress) ? req.params.poolAddress[0] : req.params.poolAddress;
+    const claimId = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
+    if (isNaN(claimId)) throw createHttpError(400, "Invalid claim ID");
 
-    const claim = await sorobanService.getClaim(claimId);
-    if (!claim) {
-      throw createHttpError(404, `Claim #${claimId} not found`);
-    }
+    const claim = await sorobanService.getPoolClaim(poolAddress, claimId);
+    if (!claim) throw createHttpError(404, `Claim #${claimId} not found in pool ${poolAddress}`);
 
-    // Serialize BigInt
-    const serialized = {
-      ...claim,
-      amount: claim.amount.toString(),
-    };
-
-    const response: ApiResponse<typeof serialized> = {
+    res.json({
       success: true,
-      data: serialized,
+      data: { ...claim, amount: claim.amount.toString() },
       timestamp: new Date().toISOString(),
-    };
-
-    res.json(response);
+    });
   } catch (error) {
     next(error);
   }
 });
 
 /**
- * GET /api/claims/:id/verify
- * Run verification on a claim — x402 payment gated.
+ * GET /api/claims/:poolAddress/:id/verify
+ * Run verification on a specific claim — x402 gated.
  */
 router.get(
-  "/:id/verify",
-  x402PaymentGate({
-    amount: "0.001",
-    asset: "USDC",
-    description: "Claim verification report fee",
-  }),
+  "/:poolAddress/:id/verify",
+  x402PaymentGate({ amount: "0.001", asset: "USDC", description: "Claim verification report fee" }),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const idParam = Array.isArray(req.params.id)
-        ? req.params.id[0]
-        : req.params.id;
-      const claimId = parseInt(idParam, 10);
-      if (isNaN(claimId)) {
-        throw createHttpError(400, "Invalid claim ID");
-      }
+      const poolAddress = Array.isArray(req.params.poolAddress) ? req.params.poolAddress[0] : req.params.poolAddress;
+      const claimId = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
+      if (isNaN(claimId)) throw createHttpError(400, "Invalid claim ID");
 
-      const report = await claimVerificationService.verifyClaim(claimId);
+      const report = await claimVerificationService.verifyClaim(poolAddress, claimId);
 
       const response: ApiResponse<VerificationReport> = {
         success: true,
         data: report,
         timestamp: new Date().toISOString(),
       };
-
       res.json(response);
     } catch (error) {
       next(error);
@@ -151,60 +120,29 @@ router.get(
 );
 
 /**
- * GET /api/claims/:id/fraud-report
- * Run fraud analysis on a claim.
+ * GET /api/claims/:poolAddress/:id/fraud-report
+ * Run fraud analysis on a specific claim.
  */
 router.get(
-  "/:id/fraud-report",
+  "/:poolAddress/:id/fraud-report",
   authMiddleware,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const idParam = Array.isArray(req.params.id)
-        ? req.params.id[0]
-        : req.params.id;
-      const claimId = parseInt(idParam, 10);
-      if (isNaN(claimId)) {
-        throw createHttpError(400, "Invalid claim ID");
-      }
+      const poolAddress = Array.isArray(req.params.poolAddress) ? req.params.poolAddress[0] : req.params.poolAddress;
+      const claimId = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
+      if (isNaN(claimId)) throw createHttpError(400, "Invalid claim ID");
 
-      const claim = await sorobanService.getClaim(claimId);
-      if (!claim) {
-        throw createHttpError(404, `Claim #${claimId} not found`);
-      }
+      const claim = await sorobanService.getPoolClaim(poolAddress, claimId);
+      if (!claim) throw createHttpError(404, `Claim #${claimId} not found`);
 
-      const report = await fraudDetectionService.analyzeClaim(
-        claimId,
-        claim.claimant,
-        claim.amount,
-      );
+      const report = await fraudDetectionService.analyzeClaim(poolAddress, claimId, claim.claimant, claim.amount);
 
       const response: ApiResponse<FraudReport> = {
         success: true,
         data: report,
         timestamp: new Date().toISOString(),
       };
-
       res.json(response);
-    } catch (error) {
-      next(error);
-    }
-  },
-);
-
-/**
- * GET /api/claims/count
- * Get total claim count.
- */
-router.get(
-  "/stats/count",
-  async (_req: Request, res: Response, next: NextFunction) => {
-    try {
-      const count = await sorobanService.getClaimCount();
-      res.json({
-        success: true,
-        data: { count },
-        timestamp: new Date().toISOString(),
-      });
     } catch (error) {
       next(error);
     }

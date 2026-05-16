@@ -20,13 +20,10 @@ export const config = {
 
   // ── Contract Addresses ──────────────────────────────────────
   contracts: {
-    pool: process.env.CONTRACT_POOL || '',
-    claims: process.env.CONTRACT_CLAIMS || '',
-    voting: process.env.CONTRACT_VOTING || '',
-    governance: process.env.CONTRACT_GOVERNANCE || '',
+    factory: process.env.CONTRACT_FACTORY || '',
     token: process.env.CONTRACT_TOKEN || '',
-    payout: process.env.CONTRACT_PAYOUT || '',
     smartAccount: process.env.CONTRACT_SMART_ACCOUNT || '',
+    poolWasmHash: process.env.POOL_WASM_HASH || '',
   },
 
   // ── x402 ────────────────────────────────────────────────────

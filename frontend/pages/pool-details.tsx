@@ -27,6 +27,7 @@ export default function PoolDetailsPage() {
   const [paying, setPaying] = useState(false);
   const [isMemberSigner, setIsMemberSigner] = useState(false);
   const [isMemberActiveState, setIsMemberActiveState] = useState(true);
+  const [signers, setSigners] = useState<string[]>([]);
   const [status, setStatus] = useState("");
 
   useEffect(() => {
@@ -57,6 +58,11 @@ export default function PoolDetailsPage() {
     pool.isSigner(poolAddress, address).then(setIsMemberSigner);
     pool.isMemberActive(poolAddress, address).then(setIsMemberActiveState);
   }, [poolAddress, address]);
+
+  useEffect(() => {
+    if (!poolAddress) return;
+    pool.getSigners(poolAddress).then(setSigners);
+  }, [poolAddress]);
 
   async function handleJoin() {
     if (!isConnected) { await connect(); return; }
@@ -235,6 +241,31 @@ export default function PoolDetailsPage() {
                       <span className="font-headline-sm text-headline-sm text-primary">{summary.signerCount}</span>
                     </div>
                   </div>
+                  {summary.phase === PoolPhase.Active && summary.activatedAt > 0 && (() => {
+                    const waitEnd = (summary.activatedAt + 60 * 24 * 60 * 60) * 1000;
+                    const now = Date.now();
+                    const waitDone = now >= waitEnd;
+                    const daysLeft = waitDone ? 0 : Math.ceil((waitEnd - now) / (1000 * 60 * 60 * 24));
+                    return (
+                      <div className={`mt-lg p-md rounded-lg flex items-start gap-sm ${
+                        waitDone ? "bg-secondary-container text-on-secondary-container" : "bg-tertiary-container text-on-tertiary-container"
+                      }`}>
+                        <span className="material-symbols-outlined text-[20px] mt-[2px]">
+                          {waitDone ? "verified" : "hourglass_top"}
+                        </span>
+                        <div>
+                          <p className="font-label-caps text-label-caps">
+                            {waitDone ? "CLAIMS OPEN" : "WAITING PERIOD"}
+                          </p>
+                          <p className="font-body-sm text-body-sm opacity-80">
+                            {waitDone
+                              ? "60-day waiting period complete. Members can now file claims."
+                              : `${daysLeft} day${daysLeft !== 1 ? "s" : ""} remaining before claims open.`}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })()}
                   <div className="mt-lg pt-lg border-t border-outline-variant/20">
                     <span className="block font-label-caps text-label-caps text-on-surface-variant mb-xs">POOL ADDRESS</span>
                     <span className="font-mono-data text-mono-data text-on-surface break-all">{poolAddress}</span>
@@ -245,26 +276,44 @@ export default function PoolDetailsPage() {
 
               {tab === "members" && (
                 <section className="bg-surface-container-lowest p-xl rounded-xl border border-outline-variant/30 shadow-sm">
-                  <h2 className="font-headline-md text-headline-md text-primary mb-lg">
-                    Members ({members.length})
-                  </h2>
+                  <div className="flex items-center justify-between mb-lg">
+                    <h2 className="font-headline-md text-headline-md text-primary">
+                      Members ({members.length}/{summary?.maxMembers ?? 30})
+                    </h2>
+                    {signers.length > 0 && (
+                      <span className="font-label-caps text-label-caps text-secondary">
+                        {signers.length} Reviewer{signers.length !== 1 ? "s" : ""} this cycle
+                      </span>
+                    )}
+                  </div>
                   {members.length === 0 ? (
                     <p className="text-on-surface-variant">No members yet.</p>
                   ) : (
                     <div className="space-y-sm">
-                      {members.map((m, i) => (
-                        <div key={m} className="flex items-center justify-between p-md bg-background rounded-lg border border-outline-variant/10">
-                          <div className="flex items-center gap-sm">
-                            <div className="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container font-bold text-sm">
-                              {i + 1}
+                      {members.map((m, i) => {
+                        const isReviewer = signers.includes(m);
+                        return (
+                          <div key={m} className="flex items-center justify-between p-md bg-background rounded-lg border border-outline-variant/10">
+                            <div className="flex items-center gap-sm">
+                              <div className="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container font-bold text-sm">
+                                {i + 1}
+                              </div>
+                              <span className="font-mono-data text-mono-data">{shortenAddress(m, 8)}</span>
                             </div>
-                            <span className="font-mono-data text-mono-data">{shortenAddress(m, 8)}</span>
+                            <div className="flex items-center gap-xs">
+                              {isReviewer && (
+                                <span className="bg-secondary-container text-on-secondary-container px-sm py-[2px] rounded-full font-label-caps text-label-caps flex items-center gap-xs">
+                                  <span className="material-symbols-outlined text-[12px]">manage_accounts</span>
+                                  REVIEWER
+                                </span>
+                              )}
+                              {m === summary?.creator && (
+                                <span className="font-label-caps text-label-caps text-secondary">CREATOR</span>
+                              )}
+                            </div>
                           </div>
-                          {m === summary?.creator && (
-                            <span className="font-label-caps text-label-caps text-secondary">CREATOR</span>
-                          )}
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </section>

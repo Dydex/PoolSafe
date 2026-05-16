@@ -87,8 +87,8 @@ export default function DashboardPage() {
   }, [address]);
 
   const totalFunds = userPools.reduce(
-    (sum, p) => sum + Number(p.summary?.totalFunds ?? BigInt(0)),
-    0
+    (sum, p) => sum + (p.summary?.totalFunds ?? BigInt(0)),
+    BigInt(0)
   );
   const totalClaims = userClaims.length;
   const resolvedClaims = userClaims.filter(
@@ -157,7 +157,7 @@ export default function DashboardPage() {
                     <span className="material-symbols-outlined text-primary">payments</span>
                   </div>
                   <span className="text-display-lg font-display-lg text-primary">
-                    {fromStroops(BigInt(totalFunds)).toFixed(2)}
+                    {fromStroops(totalFunds).toFixed(2)}
                   </span>
                   <span className="text-body-sm text-on-surface-variant">USDC across {userPools.length} pool(s)</span>
                 </div>
@@ -343,16 +343,21 @@ export default function DashboardPage() {
             <span className="text-[10px] font-bold">Dash</span>
           </Link>
           <Link className="flex flex-col items-center text-on-surface-variant" href="/explore-pools">
-            <span className="material-symbols-outlined">account_balance_wallet</span>
+            <span className="material-symbols-outlined">waves</span>
             <span className="text-[10px]">Pools</span>
           </Link>
-          <Link className="flex flex-col items-center text-on-surface-variant" href="/claims/new">
-            <span className="material-symbols-outlined">gavel</span>
-            <span className="text-[10px]">Claims</span>
+          <Link className="flex flex-col items-center text-on-surface-variant relative" href="/dashboard">
+            <span className="material-symbols-outlined">how_to_vote</span>
+            {pendingVotes.length > 0 && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 bg-error text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+                {pendingVotes.length}
+              </span>
+            )}
+            <span className="text-[10px]">Votes</span>
           </Link>
-          <Link className="flex flex-col items-center text-on-surface-variant" href="/create-pool">
-            <span className="material-symbols-outlined">add_circle</span>
-            <span className="text-[10px]">Create</span>
+          <Link className="flex flex-col items-center text-on-surface-variant" href="/guidelines">
+            <span className="material-symbols-outlined">menu_book</span>
+            <span className="text-[10px]">Guide</span>
           </Link>
         </nav>
       </>

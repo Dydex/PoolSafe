@@ -70,11 +70,12 @@ export default function ClaimVotingPage() {
   }
 
   const totalVotes = (claim?.votesFor ?? 0) + (claim?.votesAgainst ?? 0);
-  const totalEligible = summary?.memberCount ?? 1;
-  const quorumPct = totalEligible > 0 ? Math.round((totalVotes / totalEligible) * 100) : 0;
+  const signerCount = summary?.signerCount ?? 0;
+  const quorumNeeded = Math.ceil(signerCount * 0.6);
+  const quorumPct = signerCount > 0 ? Math.round((totalVotes / signerCount) * 100) : 0;
   const approvalPct = totalVotes > 0 ? Math.round(((claim?.votesFor ?? 0) / totalVotes) * 100) : 0;
   const rejectPct = totalVotes > 0 ? 100 - approvalPct : 0;
-  const quorumReached = quorumPct >= 60;
+  const quorumReached = totalVotes >= quorumNeeded && quorumNeeded > 0;
 
   const deadlineDate = claim ? new Date(claim.deadline * 1000) : null;
   const now = Date.now();
@@ -222,7 +223,7 @@ export default function ClaimVotingPage() {
                         </>
                       ) : (
                         <span className="text-body-sm text-on-surface-variant">
-                          {totalVotes}/{Math.ceil(totalEligible * 0.6)} votes needed
+                          {totalVotes}/{quorumNeeded} reviewer votes needed
                         </span>
                       )}
                     </div>
@@ -285,7 +286,7 @@ export default function ClaimVotingPage() {
                           {voting ? "Voting..." : "VOTE TO REJECT"}
                         </button>
                         <p className="text-[11px] text-center text-on-surface-variant italic">
-                          Voting requires a signed transaction from your Freighter wallet.
+                          Only selected reviewers ({signerCount} this cycle) can vote.
                         </p>
                       </>
                     ) : (

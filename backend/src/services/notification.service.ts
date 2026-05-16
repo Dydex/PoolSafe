@@ -124,11 +124,11 @@ export class NotificationService {
 
   // Convenience methods for common notification types
 
-  notifyContributionReminder(recipientAddress: string, poolName: string, amount: string): Notification {
+  notifyContributionReminder(recipientAddress: string, poolName: string, amount: string, cycle: number): Notification {
     return this.create(recipientAddress, 'contribution_reminder',
-      'Weekly Contribution Due',
-      `Your weekly contribution of ${amount} to "${poolName}" is due. Your Smart Account will process this automatically.`,
-      { poolName, amount }
+      'Monthly Contribution Due',
+      `Your monthly contribution of ${amount} USDC to "${poolName}" is due for cycle #${cycle}.`,
+      { poolName, amount, cycle }
     );
   }
 
@@ -148,11 +148,11 @@ export class NotificationService {
     );
   }
 
-  notifyVoteRequest(recipientAddress: string, proposalId: number, claimId: number): Notification {
+  notifyVoteRequest(recipientAddress: string, claimId: number, poolAddress: string): Notification {
     return this.create(recipientAddress, 'vote_request',
-      'Vote Required',
-      `A new claim #${claimId} requires your vote. Proposal #${proposalId} is open for voting.`,
-      { proposalId, claimId }
+      'Claim Review Required',
+      `You have been selected to review claim #${claimId}. Cast your vote before the deadline.`,
+      { claimId, poolAddress }
     );
   }
 
@@ -172,12 +172,24 @@ export class NotificationService {
     );
   }
 
-  notifySmartAccountExecution(recipientAddress: string, type: string, amount: string): Notification {
-    return this.create(recipientAddress, 'smart_account_execution',
-      'Smart Account Payment Executed',
-      `Your ${type} payment of ${amount} has been automatically processed.`,
-      { type, amount }
+  notifyPoolActivated(poolAddress: string, recipientAddress: string, poolName: string): Notification {
+    return this.create(recipientAddress, 'pool_activated',
+      'Pool Activated!',
+      `"${poolName}" has reached the minimum members and is now Active. Your 60-day waiting period has begun.`,
+      { poolAddress, poolName }
     );
+  }
+
+  notifySignerSelected(recipientAddress: string, poolAddress: string, poolName: string): Notification {
+    return this.create(recipientAddress, 'signer_selected',
+      'You are a Claim Reviewer',
+      `You have been selected as a claim reviewer for "${poolName}". You can now vote on pending claims.`,
+      { poolAddress, poolName }
+    );
+  }
+
+  notifySignerRotation(poolAddress: string): void {
+    logger.info(CTX, `Signer rotation completed for pool ${poolAddress.slice(0, 8)}`);
   }
 }
 

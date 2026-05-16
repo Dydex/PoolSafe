@@ -35,6 +35,7 @@ export class FraudDetectionService {
    * Analyze a claim for fraud risk using rule-based scoring.
    */
   async analyzeClaim(
+    poolAddress: string,
     claimId: number,
     claimantAddress: string,
     amount: bigint
@@ -48,14 +49,14 @@ export class FraudDetectionService {
     let totalScore = 0;
 
     // Rule 1: Duplicate Detection
-    const duplicateFlag = await this.checkDuplicateClaim(claimantAddress);
+    const duplicateFlag = await this.checkDuplicateClaim(poolAddress, claimantAddress);
     if (duplicateFlag) {
       flags.push(duplicateFlag);
       totalScore += duplicateFlag.score;
     }
 
     // Rule 2: Velocity Check
-    const velocityFlag = await this.checkVelocity(claimantAddress);
+    const velocityFlag = await this.checkVelocity(poolAddress, claimantAddress);
     if (velocityFlag) {
       flags.push(velocityFlag);
       totalScore += velocityFlag.score;
@@ -68,15 +69,15 @@ export class FraudDetectionService {
       totalScore += amountFlag.score;
     }
 
-    // Rule 4: New Member Check (for future use — requires onchain member join date)
-    const newMemberFlag = await this.checkNewMember(claimantAddress);
+    // Rule 4: New Member Check — verifies claimant is an active member
+    const newMemberFlag = await this.checkNewMember(poolAddress, claimantAddress);
     if (newMemberFlag) {
       flags.push(newMemberFlag);
       totalScore += newMemberFlag.score;
     }
 
     // Rule 5: Pattern Matching (multi-pool claiming)
-    const patternFlag = await this.checkMultiPoolPattern(claimantAddress);
+    const patternFlag = await this.checkMultiPoolPattern(poolAddress, claimantAddress);
     if (patternFlag) {
       flags.push(patternFlag);
       totalScore += patternFlag.score;
@@ -107,25 +108,30 @@ export class FraudDetectionService {
 
   // ── Rule 1: Duplicate Detection ──────────────────────────────
 
-  private async checkDuplicateClaim(claimantAddress: string): Promise<FraudFlag | null> {
+  private async checkDuplicateClaim(poolAddress: string, claimantAddress: string): Promise<FraudFlag | null> {
     try {
-      // Get all claims from this claimant
-      const userClaimCount = await sorobanService.getUserClaimCount(claimantAddress);
-      
-      if (userClaimCount < 2) {
-        return null; // First time claimant
-      }
+      const claims = await sorobanService.getPoolAllClaims(poolAddress);
+      const userClaims = claims.filter((c) => c.claimant === claimantAddress);
 
-      // In a real implementation, we'd query recent claims with similar descriptions
-      // For MVP, we flag if the user has too many recent claims (see Velocity Check)
-      
-      logger.debug(CTX, `Duplicate check: User has ${userClaimCount} claims`, {
+      if (userClaims.length < 2) return null;
+
+      // Check if two claims from same user exist within DUPLICATE_WINDOW_DAYS
+      const now = Math.floor(Date.now() / 1000);
+      const windowSecs = DUPLICATE_WINDOW_DAYS * 86400;
+      const recentClaims = userClaims.filter((c) => now - c.submittedAt < windowSecs);
+
+      if (recentClaims.length < 2) return null;
+
+      logger.debug(CTX, `Duplicate check: ${recentClaims.length} recent claims in ${DUPLICATE_WINDOW_DAYS}d window`, {
         claimant: claimantAddress.slice(0, 8),
       });
 
-      // Check if any claims are suspiciously similar (same amount, short time apart)
-      // For now, this is handled by the Velocity check below
-      return null;
+      return {
+        rule: 'duplicate_claim',
+        triggered: true,
+        score: Math.min(recentClaims.length * 5, MAX_POINTS_PER_RULE),
+        detail: `${recentClaims.length} claims filed within ${DUPLICATE_WINDOW_DAYS} days.`,
+      };
     } catch (error) {
       logger.warn(CTX, 'Duplicate check failed', { error });
       return null;
@@ -134,27 +140,25 @@ export class FraudDetectionService {
 
   // ── Rule 2: Velocity Check ──────────────────────────────────
 
-  private async checkVelocity(claimantAddress: string): Promise<FraudFlag | null> {
+  private async checkVelocity(poolAddress: string, claimantAddress: string): Promise<FraudFlag | null> {
     try {
-      const userClaimCount = await sorobanService.getUserClaimCount(claimantAddress);
-
-      if (userClaimCount <= VELOCITY_THRESHOLD) {
-        return null;
-      }
-
-      // User has filed more than VELOCITY_THRESHOLD claims
-      // Calculate score based on how much they exceed the threshold
-      const excessClaims = userClaimCount - VELOCITY_THRESHOLD;
-      const score = Math.min(
-        Math.ceil((excessClaims / VELOCITY_THRESHOLD) * MAX_POINTS_PER_RULE),
-        MAX_POINTS_PER_RULE
+      const claims = await sorobanService.getPoolAllClaims(poolAddress);
+      const now = Math.floor(Date.now() / 1000);
+      const windowSecs = VELOCITY_WINDOW_DAYS * 86400;
+      const recentUserClaims = claims.filter(
+        (c) => c.claimant === claimantAddress && now - c.submittedAt < windowSecs
       );
+
+      if (recentUserClaims.length <= VELOCITY_THRESHOLD) return null;
+
+      const excess = recentUserClaims.length - VELOCITY_THRESHOLD;
+      const score = Math.min(Math.ceil((excess / VELOCITY_THRESHOLD) * MAX_POINTS_PER_RULE), MAX_POINTS_PER_RULE);
 
       return {
         rule: 'velocity_check',
         triggered: true,
         score,
-        detail: `User has filed ${userClaimCount} claims in recent period. Threshold: ${VELOCITY_THRESHOLD}.`,
+        detail: `${recentUserClaims.length} claims in last ${VELOCITY_WINDOW_DAYS} days. Threshold: ${VELOCITY_THRESHOLD}.`,
       };
     } catch (error) {
       logger.warn(CTX, 'Velocity check failed', { error });
@@ -190,61 +194,52 @@ export class FraudDetectionService {
 
   // ── Rule 4: New Member Check ────────────────────────────────
 
-  private async checkNewMember(claimantAddress: string): Promise<FraudFlag | null> {
+  private async checkNewMember(poolAddress: string, claimantAddress: string): Promise<FraudFlag | null> {
     try {
-      // Check if claimant is a pool member
-      const isMember = await sorobanService.isPoolMember(claimantAddress);
-
-      if (!isMember) {
-        // Non-member claims are already handled upstream
+      const isActive = await sorobanService.isPoolMemberActive(poolAddress, claimantAddress);
+      if (!isActive) {
         return {
-          rule: 'new_member_check',
+          rule: 'inactive_member',
           triggered: true,
-          score: MAX_POINTS_PER_RULE, // Highest risk
-          detail: 'Claimant is not an active pool member.',
+          score: MAX_POINTS_PER_RULE,
+          detail: 'Claimant is not an active member (missed contribution or not joined).',
         };
       }
-
-      // For MVP, we can't determine join date from on-chain data
-      // In production, this would query the pool member join timestamp
       return null;
     } catch (error) {
-      logger.warn(CTX, 'New member check failed', { error });
+      logger.warn(CTX, 'Member activity check failed', { error });
       return null;
     }
   }
 
   // ── Rule 5: Pattern Matching (Multi-Pool) ───────────────────
 
-  private async checkMultiPoolPattern(claimantAddress: string): Promise<FraudFlag | null> {
+  private async checkMultiPoolPattern(poolAddress: string, claimantAddress: string): Promise<FraudFlag | null> {
     try {
-      // Query total claims across all pools
-      const totalClaims = await sorobanService.getClaimCount();
-      
-      // Simple heuristic: if user claims are >50% of all claims, flag for review
-      const userClaimCount = await sorobanService.getUserClaimCount(claimantAddress);
-      
-      if (totalClaims === 0) {
-        return null;
-      }
+      const allPools = await sorobanService.getAllFactoryPools();
+      let userTotalClaims = 0;
+      let protocolTotalClaims = 0;
 
-      const userClaimRatio = userClaimCount / totalClaims;
+      await Promise.allSettled(
+        allPools.map(async (p) => {
+          if (p.address === poolAddress) return; // already checked
+          const claims = await sorobanService.getPoolAllClaims(p.address);
+          protocolTotalClaims += claims.length;
+          userTotalClaims += claims.filter((c) => c.claimant === claimantAddress).length;
+        })
+      );
 
-      if (userClaimRatio > 0.5) {
-        const score = Math.min(
-          Math.ceil(userClaimRatio * MAX_POINTS_PER_RULE),
-          MAX_POINTS_PER_RULE
-        );
+      if (protocolTotalClaims === 0 || userTotalClaims === 0) return null;
 
-        return {
-          rule: 'multi_pool_pattern',
-          triggered: true,
-          score,
-          detail: `User accounts for ${Math.round(userClaimRatio * 100)}% of all claims. Potential pattern abuse.`,
-        };
-      }
+      const ratio = userTotalClaims / protocolTotalClaims;
+      if (ratio <= 0.5) return null;
 
-      return null;
+      return {
+        rule: 'multi_pool_pattern',
+        triggered: true,
+        score: Math.min(Math.ceil(ratio * MAX_POINTS_PER_RULE), MAX_POINTS_PER_RULE),
+        detail: `User has claims in multiple pools, accounting for ${Math.round(ratio * 100)}% of cross-pool claims.`,
+      };
     } catch (error) {
       logger.warn(CTX, 'Pattern matching check failed', { error });
       return null;
@@ -264,7 +259,7 @@ export class FraudDetectionService {
   ): FraudReport['recommendation'] {
     if (riskLevel === 'low') return 'auto-proceed';
     if (riskLevel === 'medium') return 'manual-review';
-    return 'governance-vote';
+    return 'reject';
   }
 }
 

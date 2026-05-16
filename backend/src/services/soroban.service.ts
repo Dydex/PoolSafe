@@ -8,10 +8,11 @@ import {
 } from "../utils/stellar";
 import {
   OnChainClaim,
-  OnChainPoolInfo,
-  ProtocolPoolTotals,
-  OnChainRecurringPayment,
-  OnChainScheduledTransfer,
+  OnChainPoolSummary,
+  FactoryPoolRecord,
+  ProtocolStats,
+  ClaimStatus,
+  PoolPhase,
 } from "../types";
 
 /**
@@ -144,249 +145,216 @@ export class SorobanService {
     }
   }
 
-  // ── Pool Contract Queries ────────────────────────────────────
+  // ── Factory Contract Queries ─────────────────────────────────
 
-  async getPoolTotalDeposits(): Promise<bigint> {
+  async getFactoryPoolCount(): Promise<number> {
     const result = await this.simulateContractCall(
-      config.contracts.pool,
-      "total_deposits",
-    );
-    if (!result) return BigInt(0);
-    return StellarSdk.scValToBigInt(result);
-  }
-
-  async getPoolMemberCount(): Promise<number> {
-    const result = await this.simulateContractCall(
-      config.contracts.pool,
-      "member_count",
+      config.contracts.factory,
+      "pool_count",
     );
     if (!result) return 0;
     return Number(StellarSdk.scValToBigInt(result));
   }
 
-  async getProtocolPoolTotals(): Promise<ProtocolPoolTotals> {
-    const result = await this.simulateContractCall(
-      config.contracts.pool,
-      "protocol_totals",
-    );
-
-    if (!result) {
-      return {
-        totalPaidClaimAmount: BigInt(0),
-        totalBalanceAllPools: BigInt(0),
-        totalApprovedClaimAmount: BigInt(0),
-        activePoolCount: 0,
-        totalClaimsSubmitted: 0,
-      };
+  async getAllFactoryPools(): Promise<FactoryPoolRecord[]> {
+    try {
+      const result = await this.simulateContractCall(
+        config.contracts.factory,
+        "get_all_pools",
+      );
+      if (!result) return [];
+      const native = StellarSdk.scValToNative(result) as Record<string, unknown>[];
+      return native.map((r) => ({
+        address: r.address as string,
+        creator: r.creator as string,
+        metadataCid: r.metadata_cid as string,
+        createdAt: Number(r.created_at),
+        paused: Boolean(r.paused),
+      }));
+    } catch (error) {
+      logger.error(CTX, "Failed to get all factory pools", { error });
+      return [];
     }
-
-    const native = StellarSdk.scValToNative(result) as Record<string, unknown>;
-
-    return {
-      totalPaidClaimAmount: BigInt(
-        native.total_paid_claim_amount as string | number,
-      ),
-      totalBalanceAllPools: BigInt(
-        native.total_balance_all_pools as string | number,
-      ),
-      totalApprovedClaimAmount: BigInt(
-        native.total_approved_claim_amount as string | number,
-      ),
-      activePoolCount: Number(native.active_pool_count),
-      totalClaimsSubmitted: Number(native.total_claims_submitted),
-    };
   }
 
-  async isPoolMember(address: string): Promise<boolean> {
-    const result = await this.simulateContractCall(
-      config.contracts.pool,
-      "is_member",
-      [StellarSdk.nativeToScVal(address, { type: "address" })],
-    );
+  // ── Per-Pool Queries ─────────────────────────────────────────
+
+  async getPoolSummary(poolAddress: string): Promise<OnChainPoolSummary | null> {
+    try {
+      const result = await this.simulateContractCall(poolAddress, "get_summary");
+      if (!result) return null;
+      const r = StellarSdk.scValToNative(result) as Record<string, unknown>;
+      return {
+        name: String(r.name ?? ""),
+        description: String(r.description ?? ""),
+        creator: String(r.creator ?? ""),
+        phase: this.mapPhase(r.phase),
+        balance: BigInt(r.balance as string | number ?? 0),
+        memberCount: Number(r.member_count ?? 0),
+        minMembers: Number(r.min_members ?? 15),
+        maxMembers: Number(r.max_members ?? 30),
+        fixedContribution: BigInt(r.fixed_contribution as string | number ?? 0),
+        claimCount: Number(r.claim_count ?? 0),
+        currentCycle: Number(r.current_cycle ?? 0),
+        signerCount: Number(r.signer_count ?? 0),
+        createdAt: Number(r.created_at ?? 0),
+        activatedAt: Number(r.activated_at ?? 0),
+        expiresAt: Number(r.expires_at ?? 0),
+        paused: Boolean(r.paused ?? false),
+      };
+    } catch (error) {
+      logger.error(CTX, `Failed to get pool summary: ${poolAddress}`, { error });
+      return null;
+    }
+  }
+
+  async isPoolMember(poolAddress: string, address: string): Promise<boolean> {
+    const result = await this.simulateContractCall(poolAddress, "is_member", [
+      StellarSdk.nativeToScVal(address, { type: "address" }),
+    ]);
     if (!result) return false;
     return StellarSdk.scValToNative(result) as boolean;
   }
 
-  // ── Claims Contract Queries ──────────────────────────────────
-
-  async getClaimCount(): Promise<number> {
-    const result = await this.simulateContractCall(
-      config.contracts.claims,
-      "claim_count",
-    );
-    if (!result) return 0;
-    return Number(StellarSdk.scValToBigInt(result));
+  async isPoolMemberActive(poolAddress: string, address: string): Promise<boolean> {
+    const result = await this.simulateContractCall(poolAddress, "is_member_active", [
+      StellarSdk.nativeToScVal(address, { type: "address" }),
+    ]);
+    if (!result) return false;
+    return StellarSdk.scValToNative(result) as boolean;
   }
 
-  async getClaim(claimId: number): Promise<OnChainClaim | null> {
+  async getPoolClaim(poolAddress: string, claimId: number): Promise<OnChainClaim | null> {
     try {
-      const result = await this.simulateContractCall(
-        config.contracts.claims,
-        "get_claim",
-        [StellarSdk.nativeToScVal(claimId, { type: "u64" })],
-      );
+      const result = await this.simulateContractCall(poolAddress, "get_claim", [
+        StellarSdk.nativeToScVal(claimId, { type: "u64" }),
+      ]);
       if (!result) return null;
-
-      const native = StellarSdk.scValToNative(result) as Record<
-        string,
-        unknown
-      >;
-      return {
-        id: Number(native.id),
-        claimant: native.claimant as string,
-        amount: BigInt(native.amount as string | number),
-        descriptionHash: native.description_hash as string,
-        evidenceIpfs: native.evidence_ipfs as string,
-        status: this.mapClaimStatus(native.status),
-        submittedAt: Number(native.submitted_at),
-        updatedAt: Number(native.updated_at),
-      };
+      return this.parseOnChainClaim(StellarSdk.scValToNative(result) as Record<string, unknown>);
     } catch (error) {
-      logger.error(CTX, `Failed to get claim ${claimId}`, { error });
+      logger.error(CTX, `Failed to get claim ${claimId} from pool ${poolAddress}`, { error });
       return null;
     }
   }
 
-  async getUserClaimCount(address: string): Promise<number> {
-    const result = await this.simulateContractCall(
-      config.contracts.claims,
-      "user_claim_count",
-      [StellarSdk.nativeToScVal(address, { type: "address" })],
-    );
-    if (!result) return 0;
-    return Number(StellarSdk.scValToBigInt(result));
-  }
-
-  // ── Smart Account Queries ────────────────────────────────────
-
-  async getRecurringPaymentCount(): Promise<number> {
-    const result = await this.simulateContractCall(
-      config.contracts.smartAccount,
-      "recurring_count",
-    );
-    if (!result) return 0;
-    return Number(StellarSdk.scValToBigInt(result));
-  }
-
-  async getRecurringPayment(
-    paymentId: number,
-  ): Promise<OnChainRecurringPayment | null> {
+  async getPoolAllClaims(poolAddress: string): Promise<OnChainClaim[]> {
     try {
-      const result = await this.simulateContractCall(
-        config.contracts.smartAccount,
-        "get_recurring",
-        [StellarSdk.nativeToScVal(paymentId, { type: "u64" })],
-      );
-      if (!result) return null;
-
-      const native = StellarSdk.scValToNative(result) as Record<
-        string,
-        unknown
-      >;
-      return {
-        id: Number(native.id),
-        owner: native.owner as string,
-        recipient: native.recipient as string,
-        token: native.token as string,
-        amount: BigInt(native.amount as string | number),
-        interval:
-          (native.interval as string) === "Weekly" ? "Weekly" : "Monthly",
-        nextExecution: Number(native.next_execution),
-        totalExecuted: Number(native.total_executed),
-        maxExecutions: Number(native.max_executions),
-        isActive: native.is_active as boolean,
-      };
+      const result = await this.simulateContractCall(poolAddress, "get_all_claims");
+      if (!result) return [];
+      const native = StellarSdk.scValToNative(result) as Record<string, unknown>[];
+      return native.map((r) => this.parseOnChainClaim(r));
     } catch (error) {
-      logger.error(CTX, `Failed to get recurring payment ${paymentId}`, {
-        error,
-      });
-      return null;
+      logger.error(CTX, `Failed to get claims for pool ${poolAddress}`, { error });
+      return [];
     }
   }
 
-  async getScheduledTransferCount(): Promise<number> {
-    const result = await this.simulateContractCall(
-      config.contracts.smartAccount,
-      "scheduled_count",
-    );
-    if (!result) return 0;
-    return Number(StellarSdk.scValToBigInt(result));
-  }
-
-  async getScheduledTransfer(
-    transferId: number,
-  ): Promise<OnChainScheduledTransfer | null> {
+  async getPoolPendingClaims(poolAddress: string): Promise<OnChainClaim[]> {
     try {
-      const result = await this.simulateContractCall(
-        config.contracts.smartAccount,
-        "get_scheduled",
-        [StellarSdk.nativeToScVal(transferId, { type: "u64" })],
-      );
-      if (!result) return null;
-
-      const native = StellarSdk.scValToNative(result) as Record<
-        string,
-        unknown
-      >;
-      return {
-        id: Number(native.id),
-        owner: native.owner as string,
-        recipient: native.recipient as string,
-        token: native.token as string,
-        amount: BigInt(native.amount as string | number),
-        executeAfter: Number(native.execute_after),
-        executed: native.executed as boolean,
-      };
+      const result = await this.simulateContractCall(poolAddress, "get_pending_claims");
+      if (!result) return [];
+      const native = StellarSdk.scValToNative(result) as Record<string, unknown>[];
+      return native.map((r) => this.parseOnChainClaim(r));
     } catch (error) {
-      logger.error(CTX, `Failed to get scheduled transfer ${transferId}`, {
-        error,
-      });
-      return null;
+      logger.error(CTX, `Failed to get pending claims for pool ${poolAddress}`, { error });
+      return [];
     }
   }
 
-  // ── Transaction Submission (for keeper) ──────────────────────
+  // ── Protocol-wide Stats ──────────────────────────────────────
 
-  async executeRecurringPayment(paymentId: number): Promise<string> {
-    if (!this.keypair) throw new Error("No backend keypair configured");
-
-    return this.submitContractCall(
-      config.contracts.smartAccount,
-      "execute_recurring",
-      [
-        StellarSdk.nativeToScVal(this.keypair.publicKey(), { type: "address" }),
-        StellarSdk.nativeToScVal(paymentId, { type: "u64" }),
-      ],
+  async getProtocolStats(): Promise<ProtocolStats> {
+    const pools = await this.getAllFactoryPools();
+    const summaries = await Promise.allSettled(
+      pools.map((p) => this.getPoolSummary(p.address))
     );
+
+    let totalBalance = BigInt(0);
+    let totalMembers = 0;
+    let totalClaims = 0;
+    let activePools = 0;
+    let formationPools = 0;
+
+    for (const result of summaries) {
+      if (result.status === "fulfilled" && result.value) {
+        const s = result.value;
+        totalBalance += s.balance;
+        totalMembers += s.memberCount;
+        totalClaims += s.claimCount;
+        if (s.phase === "Active") activePools++;
+        if (s.phase === "Formation") formationPools++;
+      }
+    }
+
+    return {
+      totalPools: pools.length,
+      activePools,
+      formationPools,
+      totalBalance,
+      totalMembers,
+      totalClaims,
+    };
   }
 
-  async executeScheduledTransfer(transferId: number): Promise<string> {
-    if (!this.keypair) throw new Error("No backend keypair configured");
+  // ── Keeper Transaction Submissions ───────────────────────────
 
-    return this.submitContractCall(
-      config.contracts.smartAccount,
-      "execute_scheduled",
-      [
-        StellarSdk.nativeToScVal(this.keypair.publicKey(), { type: "address" }),
-        StellarSdk.nativeToScVal(transferId, { type: "u64" }),
-      ],
-    );
+  async advanceCycle(poolAddress: string): Promise<string> {
+    return this.submitContractCall(poolAddress, "advance_cycle", []);
+  }
+
+  async rotateSigners(poolAddress: string): Promise<string> {
+    return this.submitContractCall(poolAddress, "rotate_signers", []);
+  }
+
+  async rejectExpiredClaim(poolAddress: string, claimId: number): Promise<string> {
+    return this.submitContractCall(poolAddress, "reject_expired_claim", [
+      StellarSdk.nativeToScVal(claimId, { type: "u64" }),
+    ]);
   }
 
   // ── Helpers ──────────────────────────────────────────────────
 
-  private mapClaimStatus(status: unknown): OnChainClaim["status"] {
-    const statusMap: Record<string, OnChainClaim["status"]> = {
-      Submitted: "Submitted",
-      UnderReview: "UnderReview",
-      ApprovedByGovernance: "ApprovedByGovernance",
-      Rejected: "Rejected",
-      PaidOut: "PaidOut",
+  private parseOnChainClaim(r: Record<string, unknown>): OnChainClaim {
+    return {
+      id: Number(r.id ?? 0),
+      claimant: String(r.claimant ?? ""),
+      amount: BigInt(r.amount as string | number ?? 0),
+      description: String(r.description ?? ""),
+      evidenceCid: String(r.evidence_cid ?? ""),
+      status: this.mapClaimStatus(r.status),
+      votesFor: Number(r.votes_for ?? 0),
+      votesAgainst: Number(r.votes_against ?? 0),
+      submittedAt: Number(r.submitted_at ?? 0),
+      deadline: Number(r.deadline ?? 0),
+      updatedAt: Number(r.updated_at ?? 0),
+      executed: Boolean(r.executed ?? false),
+    };
+  }
+
+  private mapClaimStatus(status: unknown): ClaimStatus {
+    const map: Record<string, ClaimStatus> = {
       PendingReview: "PendingReview",
       Approved: "Approved",
-      Resolved: "Resolved",
+      Rejected: "Rejected",
+      Expired: "Expired",
+      PaidOut: "PaidOut",
     };
-    return statusMap[String(status)] || "Submitted";
+    const key = typeof status === "object" && status !== null
+      ? Object.keys(status as object)[0]
+      : String(status);
+    return map[key] ?? "PendingReview";
+  }
+
+  private mapPhase(phase: unknown): PoolPhase {
+    const map: Record<string, PoolPhase> = {
+      Formation: "Formation",
+      Active: "Active",
+      Closed: "Closed",
+    };
+    const key = typeof phase === "object" && phase !== null
+      ? Object.keys(phase as object)[0]
+      : String(phase);
+    return map[key] ?? "Formation";
   }
 }
 

@@ -1,10 +1,97 @@
 // ── Shared backend types ────────────────────────────────────────
 
+// ── Pool / Protocol ──────────────────────────────────────────────
+
+export type PoolPhase = 'Formation' | 'Active' | 'Closed';
+
+export type ClaimStatus = 'PendingReview' | 'Approved' | 'Rejected' | 'Expired' | 'PaidOut';
+
 /**
- * Claim verification report returned by the claim-verification service.
+ * On-chain pool summary (mirrors PoolSummary struct in pool contract).
  */
+export interface OnChainPoolSummary {
+  name: string;
+  description: string;
+  creator: string;
+  phase: PoolPhase;
+  balance: bigint;
+  memberCount: number;
+  minMembers: number;
+  maxMembers: number;
+  fixedContribution: bigint;
+  claimCount: number;
+  currentCycle: number;
+  signerCount: number;
+  createdAt: number;
+  activatedAt: number;
+  expiresAt: number;
+  paused: boolean;
+}
+
+/**
+ * On-chain claim data (mirrors Claim struct in pool contract).
+ */
+export interface OnChainClaim {
+  id: number;
+  claimant: string;
+  amount: bigint;
+  description: string;
+  evidenceCid: string;
+  status: ClaimStatus;
+  votesFor: number;
+  votesAgainst: number;
+  submittedAt: number;
+  deadline: number;
+  updatedAt: number;
+  executed: boolean;
+}
+
+/**
+ * Factory pool record.
+ */
+export interface FactoryPoolRecord {
+  address: string;
+  creator: string;
+  metadataCid: string;
+  createdAt: number;
+  paused: boolean;
+}
+
+/**
+ * Protocol-wide aggregate stats (computed from all pools via factory).
+ */
+export interface ProtocolStats {
+  totalPools: number;
+  activePools: number;
+  formationPools: number;
+  totalBalance: bigint;
+  totalMembers: number;
+  totalClaims: number;
+}
+
+// ── Keeper ───────────────────────────────────────────────────────
+
+export type KeeperTaskType =
+  | 'advance_cycle'
+  | 'rotate_signers'
+  | 'reject_expired_claim';
+
+export interface KeeperLog {
+  id: string;
+  type: KeeperTaskType;
+  poolAddress: string;
+  detail: string;
+  success: boolean;
+  txHash?: string;
+  error?: string;
+  executedAt: string;
+}
+
+// ── Claim Verification ───────────────────────────────────────────
+
 export interface VerificationReport {
   claimId: number;
+  poolAddress: string;
   isValid: boolean;
   checks: VerificationCheck[];
   overallScore: number; // 0-100
@@ -17,15 +104,14 @@ export interface VerificationCheck {
   detail: string;
 }
 
-/**
- * Fraud detection result from the fraud-detection service.
- */
+// ── Fraud Detection ──────────────────────────────────────────────
+
 export interface FraudReport {
   claimId: number;
   riskScore: number; // 0-100
   riskLevel: 'low' | 'medium' | 'high';
   flags: FraudFlag[];
-  recommendation: 'auto-proceed' | 'manual-review' | 'governance-vote';
+  recommendation: 'auto-proceed' | 'manual-review' | 'reject';
   timestamp: string;
 }
 
@@ -36,9 +122,8 @@ export interface FraudFlag {
   detail: string;
 }
 
-/**
- * Notification stored in SQLite.
- */
+// ── Notifications ────────────────────────────────────────────────
+
 export interface Notification {
   id: string;
   recipientAddress: string;
@@ -57,13 +142,13 @@ export type NotificationType =
   | 'vote_request'
   | 'payout_confirmation'
   | 'fraud_alert'
-  | 'smart_account_execution'
+  | 'pool_activated'
   | 'pool_joined'
+  | 'signer_selected'
   | 'general';
 
-/**
- * IPFS upload result.
- */
+// ── IPFS ─────────────────────────────────────────────────────────
+
 export interface IpfsUploadResult {
   cid: string;
   fileName: string;
@@ -74,101 +159,14 @@ export interface IpfsUploadResult {
   timestamp: string;
 }
 
-/**
- * Keeper execution log entry.
- */
-export interface KeeperLog {
-  id: string;
-  type: 'recurring_payment' | 'scheduled_transfer';
-  contractEntryId: number;
-  success: boolean;
-  txHash?: string;
-  error?: string;
-  executedAt: string;
-}
+// ── API ──────────────────────────────────────────────────────────
 
-/**
- * On-chain claim data (mirror of Soroban contract state).
- */
-export interface OnChainClaim {
-  id: number;
-  claimant: string;
-  amount: bigint;
-  descriptionHash: string;
-  evidenceIpfs: string;
-  status: ClaimStatus;
-  submittedAt: number;
-  updatedAt: number;
-}
-
-export type ClaimStatus =
-  | 'PendingReview'
-  | 'Approved'
-  | 'Submitted'
-  | 'UnderReview'
-  | 'ApprovedByGovernance'
-  | 'Rejected'
-  | 'Resolved'
-  | 'PaidOut';
-
-export interface ProtocolPoolTotals {
-  totalPaidClaimAmount: bigint;
-  totalBalanceAllPools: bigint;
-  totalApprovedClaimAmount: bigint;
-  activePoolCount: number;
-  totalClaimsSubmitted: number;
-}
-
-/**
- * On-chain pool info.
- */
-export interface OnChainPoolInfo {
-  totalDeposits: bigint;
-  memberCount: number;
-  tokenAddress: string;
-}
-
-/**
- * Recurring payment from Smart Account contract.
- */
-export interface OnChainRecurringPayment {
-  id: number;
-  owner: string;
-  recipient: string;
-  token: string;
-  amount: bigint;
-  interval: 'Weekly' | 'Monthly';
-  nextExecution: number;
-  totalExecuted: number;
-  maxExecutions: number;
-  isActive: boolean;
-}
-
-/**
- * Scheduled transfer from Smart Account contract.
- */
-export interface OnChainScheduledTransfer {
-  id: number;
-  owner: string;
-  recipient: string;
-  token: string;
-  amount: bigint;
-  executeAfter: number;
-  executed: boolean;
-}
-
-/**
- * API error response.
- */
 export interface ApiError {
   error: string;
   message: string;
   statusCode: number;
 }
 
-/**
- * API success response wrapper.
- */
 export interface ApiResponse<T> {
   success: boolean;
   data: T;

@@ -16,13 +16,13 @@ export class ClaimVerificationService {
   /**
    * Run full verification on a claim.
    */
-  async verifyClaim(claimId: number): Promise<VerificationReport> {
-    logger.info(CTX, `Starting verification for claim #${claimId}`);
+  async verifyClaim(poolAddress: string, claimId: number): Promise<VerificationReport> {
+    logger.info(CTX, `Starting verification for claim #${claimId} in pool ${poolAddress.slice(0, 8)}`);
 
     const checks: VerificationCheck[] = [];
 
     // 1. Check claim exists on-chain
-    const claim = await sorobanService.getClaim(claimId);
+    const claim = await sorobanService.getPoolClaim(poolAddress, claimId);
     checks.push({
       name: 'claim_exists',
       passed: claim !== null,
@@ -30,25 +30,25 @@ export class ClaimVerificationService {
     });
 
     if (!claim) {
-      return this.buildReport(claimId, checks);
+      return this.buildReport(claimId, poolAddress, checks);
     }
 
-    // 2. Verify claimant is a pool member
-    let isMember = false;
+    // 2. Verify claimant is an active pool member
+    let isActive = false;
     try {
-      isMember = await sorobanService.isPoolMember(claim.claimant);
+      isActive = await sorobanService.isPoolMemberActive(poolAddress, claim.claimant);
     } catch {
-      isMember = false;
+      isActive = false;
     }
     checks.push({
-      name: 'claimant_is_member',
-      passed: isMember,
-      detail: isMember
+      name: 'claimant_is_active_member',
+      passed: isActive,
+      detail: isActive
         ? `Claimant ${claim.claimant.slice(0, 8)}... is an active pool member`
-        : `Claimant ${claim.claimant.slice(0, 8)}... is NOT a pool member`,
+        : `Claimant ${claim.claimant.slice(0, 8)}... is NOT an active member (may have missed contribution)`,
     });
 
-    // 3. Verify claim amount is positive and reasonable
+    // 3. Verify claim amount is positive
     const amountPositive = claim.amount > BigInt(0);
     checks.push({
       name: 'amount_positive',
@@ -60,9 +60,9 @@ export class ClaimVerificationService {
 
     // 4. Verify IPFS evidence exists
     let evidenceExists = false;
-    if (claim.evidenceIpfs && claim.evidenceIpfs.length > 0) {
+    if (claim.evidenceCid && claim.evidenceCid.length > 0) {
       try {
-        evidenceExists = await ipfsService.isPinned(claim.evidenceIpfs);
+        evidenceExists = await ipfsService.isPinned(claim.evidenceCid);
       } catch {
         evidenceExists = false;
       }
@@ -71,12 +71,12 @@ export class ClaimVerificationService {
       name: 'evidence_on_ipfs',
       passed: evidenceExists,
       detail: evidenceExists
-        ? `Evidence pinned on IPFS: ${claim.evidenceIpfs}`
-        : `Evidence NOT found on IPFS: ${claim.evidenceIpfs || 'no CID provided'}`,
+        ? `Evidence pinned on IPFS: ${claim.evidenceCid}`
+        : `Evidence NOT found on IPFS: ${claim.evidenceCid || 'no CID provided'}`,
     });
 
-    // 5. Verify claim is in a valid state for processing
-    const validStatus = claim.status === 'Submitted' || claim.status === 'UnderReview';
+    // 5. Verify claim is in PendingReview state
+    const validStatus = claim.status === 'PendingReview';
     checks.push({
       name: 'valid_status',
       passed: validStatus,
@@ -85,39 +85,53 @@ export class ClaimVerificationService {
         : `Claim status (${claim.status}) is not eligible for review`,
     });
 
-    // 6. Check claim is not stale (submitted within last 90 days)
+    // 6. Check claim deadline has not passed
     const now = Math.floor(Date.now() / 1000);
-    const maxAge = 90 * 24 * 60 * 60; // 90 days
-    const isRecent = (now - claim.submittedAt) < maxAge;
+    const deadlineOk = claim.deadline === 0 || now < claim.deadline;
     checks.push({
-      name: 'claim_recency',
-      passed: isRecent,
-      detail: isRecent
-        ? `Claim submitted ${Math.floor((now - claim.submittedAt) / 86400)} days ago`
-        : `Claim is stale — submitted ${Math.floor((now - claim.submittedAt) / 86400)} days ago`,
+      name: 'within_deadline',
+      passed: deadlineOk,
+      detail: deadlineOk
+        ? `Claim deadline: ${claim.deadline === 0 ? 'not set' : new Date(claim.deadline * 1000).toISOString()}`
+        : `Claim deadline passed: ${new Date(claim.deadline * 1000).toISOString()}`,
     });
 
-    return this.buildReport(claimId, checks);
+    return this.buildReport(claimId, poolAddress, checks);
   }
 
   /**
    * Quick check if a claim submission is valid before on-chain submission.
    */
   async preSubmissionCheck(
+    poolAddress: string,
     claimantAddress: string,
     amount: bigint,
     evidenceCid: string
   ): Promise<{ valid: boolean; errors: string[] }> {
     const errors: string[] = [];
 
-    // Check claimant is a pool member
+    // Check claimant is an active pool member
     try {
-      const isMember = await sorobanService.isPoolMember(claimantAddress);
-      if (!isMember) {
-        errors.push('Claimant is not a pool member');
+      const isActive = await sorobanService.isPoolMemberActive(poolAddress, claimantAddress);
+      if (!isActive) {
+        errors.push('Claimant is not an active pool member (may have missed a contribution)');
       }
     } catch {
       errors.push('Could not verify pool membership');
+    }
+
+    // Check pool is in Active phase
+    try {
+      const summary = await sorobanService.getPoolSummary(poolAddress);
+      if (!summary) {
+        errors.push('Pool not found');
+      } else if (summary.phase !== 'Active') {
+        errors.push(`Pool is not active (current phase: ${summary.phase})`);
+      } else if (summary.paused) {
+        errors.push('Pool is currently paused');
+      }
+    } catch {
+      errors.push('Could not verify pool status');
     }
 
     // Check amount
@@ -130,21 +144,19 @@ export class ClaimVerificationService {
       errors.push('Invalid or missing evidence IPFS CID');
     }
 
-    return {
-      valid: errors.length === 0,
-      errors,
-    };
+    return { valid: errors.length === 0, errors };
   }
 
   // ── Private ──────────────────────────────────────────────────
 
-  private buildReport(claimId: number, checks: VerificationCheck[]): VerificationReport {
+  private buildReport(claimId: number, poolAddress: string, checks: VerificationCheck[]): VerificationReport {
     const passedCount = checks.filter((c) => c.passed).length;
     const totalCount = checks.length;
     const overallScore = totalCount > 0 ? Math.round((passedCount / totalCount) * 100) : 0;
 
     const report: VerificationReport = {
       claimId,
+      poolAddress,
       isValid: checks.every((c) => c.passed),
       checks,
       overallScore,

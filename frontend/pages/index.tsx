@@ -165,9 +165,9 @@ export default function LandingPage() {
         </div>
         <h3 className="font-headline-sm text-headline-sm text-primary mb-xs">Learn the Details</h3>
         <p className="text-body-sm text-on-surface-variant mb-md">Read our policy guidelines to understand exactly how we calculate payouts.</p>
-        <a className="text-primary font-bold flex items-center gap-xs hover:gap-md transition-all" href="#">
+        <Link className="text-primary font-bold flex items-center gap-xs hover:gap-md transition-all" href="/guidelines">
                                 Read Guidelines <span className="material-symbols-outlined">arrow_forward</span>
-        </a>
+        </Link>
         </div>
         </div>
         </section>
