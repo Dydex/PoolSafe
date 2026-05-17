@@ -47,6 +47,7 @@ export async function getMemberRole(
   poolAddress: string,
   member: string
 ): Promise<Role | null> {
+  if (!member) return null;
   try {
     const result = await readContract({
       contractId: poolAddress,
@@ -371,13 +372,17 @@ function parsePoolSummary(raw: any): PoolSummary {
   };
 }
 
-function parseRole(raw: any): Role {
+const VALID_ROLES: Role[] = ["Creator", "Member", "Manager"];
+
+function parseRole(raw: any): Role | null {
+  let candidate: string;
   // ScVec([ScSymbol("Variant")]) → ["Variant"]
-  if (Array.isArray(raw) && raw.length > 0) return String(raw[0]) as Role;
+  if (Array.isArray(raw) && raw.length > 0) candidate = String(raw[0]);
   // ScMap({ Variant: null }) → { Variant: null }
-  if (typeof raw === "object" && raw !== null) return Object.keys(raw)[0] as Role;
+  else if (typeof raw === "object" && raw !== null) candidate = Object.keys(raw)[0];
   // ScSymbol → "Variant"
-  return String(raw) as Role;
+  else candidate = String(raw);
+  return (VALID_ROLES as string[]).includes(candidate) ? (candidate as Role) : null;
 }
 
 function parsePoolPhase(raw: any): PoolPhase {

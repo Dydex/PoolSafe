@@ -30,8 +30,9 @@ export default function PoolDetailsPage() {
   const [payMode, setPayMode] = useState<"once" | "auto">("once");
   const [recurringId, setRecurringId] = useState<bigint | null>(null);
   const [approvingAllowance, setApprovingAllowance] = useState(false);
+  const [roleLoaded, setRoleLoaded] = useState(false);
   const [isMemberSigner, setIsMemberSigner] = useState(false);
-  const [isMemberActiveState, setIsMemberActiveState] = useState(true);
+  const [isMemberActiveState, setIsMemberActiveState] = useState(false);
   const [signers, setSigners] = useState<string[]>([]);
   const [status, setStatus] = useState("");
 
@@ -58,10 +59,18 @@ export default function PoolDetailsPage() {
   }, [poolAddress]);
 
   useEffect(() => {
-    if (!poolAddress || !address) return;
-    pool.getMemberRole(poolAddress, address).then(setUserRole);
-    pool.isSigner(poolAddress, address).then(setIsMemberSigner);
-    pool.isMemberActive(poolAddress, address).then(setIsMemberActiveState);
+    if (!poolAddress || !address) { setRoleLoaded(true); return; }
+    setRoleLoaded(false);
+    Promise.all([
+      pool.getMemberRole(poolAddress, address),
+      pool.isSigner(poolAddress, address),
+      pool.isMemberActive(poolAddress, address),
+    ]).then(([role, signer, active]) => {
+      setUserRole(role);
+      setIsMemberSigner(signer);
+      setIsMemberActiveState(active);
+      setRoleLoaded(true);
+    });
   }, [poolAddress, address]);
 
   useEffect(() => {
@@ -441,7 +450,12 @@ export default function PoolDetailsPage() {
             <aside className="col-span-12 lg:col-span-4 flex flex-col gap-xl">
               {/* Join / Member Actions Card */}
               <section className="bg-primary text-on-primary p-xl rounded-xl shadow-sm">
-                {userRole ? (
+                {!roleLoaded ? (
+                  <div className="flex items-center gap-sm opacity-60">
+                    <span className="material-symbols-outlined animate-spin text-[20px]">progress_activity</span>
+                    <span className="text-sm">Checking membership...</span>
+                  </div>
+                ) : userRole ? (
                   <>
                     <div className="flex items-center gap-sm mb-xs">
                       <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>verified</span>
