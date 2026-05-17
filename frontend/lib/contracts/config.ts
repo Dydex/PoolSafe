@@ -13,6 +13,7 @@ export const NETWORK = {
 export const CONTRACTS = {
   factory: process.env.NEXT_PUBLIC_FACTORY_CONTRACT_ID ?? "",
   usdc: process.env.NEXT_PUBLIC_USDC_TOKEN_ID ?? "",
+  smartAccount: process.env.NEXT_PUBLIC_SMART_ACCOUNT_CONTRACT_ID ?? "CCERWUE35WN7M4PN6XYK7CDCJZX35TC53TFATJNBRA6I3FDS3RVS65YF",
 } as const;
 
 /** Deployer / admin address */
